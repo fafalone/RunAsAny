@@ -13,7 +13,7 @@ Module modCreateToken
 'Must run as admin
 
 'This is roughly based on the Chapter 11 CreateToken example from
-'the excellent Windows Native API Programming book by Pavel Yosifovish.
+'the excellent Windows Native API Programming book by Pavel Yosifovich.
 'https://github.com/zodiacon/winnativeapibooksamples
 
 
