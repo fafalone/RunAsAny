@@ -1,0 +1,313 @@
+Module modCreateToken
+
+'Demonstrates use of NtCreateToken
+
+'Must run as admin
+
+'This is roughly based on the Chapter 11 CreateToken example from
+'the excellent Windows Native API Programming book by Pavel Yosifovish.
+'https://github.com/zodiacon/winnativeapibooksamples
+
+
+Public g_TI As Boolean
+
+Public lOld64 As LongPtr
+
+Private bUI As Boolean
+Private Sub PostLog(smsg As String)
+If bUI Then Form1.AppendLog smsg
+End Sub
+
+Sub Main()
+#If Win64 = 0 Then
+Wow64DisableWow64FsRedirection lOld64
+#End If
+If Command() <> "" Then
+    'todo
+Else
+    bUI = True
+    Form1.Show
+End If
+End Sub
+
+Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional PriorityClass As Long = NORMAL_PRIORITY_CLASS, Optional UIAccess As Boolean = False) As NTSTATUS
+    'Enable debug privilege and imperdonsate lsass.exe
+    Dim enabled As Byte
+    Dim status As NTSTATUS = RtlAdjustPrivilege(SE_DEBUG_PRIVILEGE, 1, 0, enabled)
+    If NT_SUCCESS(status) Then
+        PostLog "Successfully enabled debug privilege."
+    Else
+        PostLog "Failed to enable debug privilege. You must run this program as Administrator"
+        Return status
+    End If
+    
+    Dim hDupToken As LongPtr = DuplicateLSASSToken()
+    If hDupToken = 0 Then
+        PostLog "Failed to duplicate lsass.exe token."
+        Return STATUS_UNSUCCESSFUL
+    End If
+    
+    PostLog "Creating sids for TOKEN_GROUPS"
+    Dim systemSid As SE_SID
+    Dim size As Long = LenB(systemSid)
+    CreateWellKnownSid(WinLocalSystemSid, vbNullPtr, VarPtr(systemSid), size)
+    DisplaySid(VarPtr(systemSid))
+    
+    Dim adminSid As SE_SID
+    size = LenB(adminSid)
+    CreateWellKnownSid(WinBuiltinAdministratorsSid, vbNullPtr, VarPtr(adminSid), size)
+    DisplaySid(VarPtr(adminSid))
+    
+    Dim allUsersSid As SE_SID
+    size = LenB(allUsersSid)
+    CreateWellKnownSid(WinWorldSid, vbNullPtr, VarPtr(allUsersSid), size)
+    DisplaySid(VarPtr(allUsersSid))
+    
+    Dim interactiveSid As SE_SID
+    size = LenB(interactiveSid)
+    CreateWellKnownSid(WinInteractiveSid, vbNullPtr, VarPtr(interactiveSid), size)
+    DisplaySid(VarPtr(interactiveSid))
+    
+    Dim authUsers As SE_SID
+    size = LenB(authUsers)
+    CreateWellKnownSid(WinAuthenticatedUserSid, vbNullPtr, VarPtr(authUsers), size)
+    DisplaySid(VarPtr(authUsers))
+    
+     Dim integritySid As LongPtr 'PSID
+     Dim auth As SID_IDENTIFIER_AUTHORITY
+     auth.Value(5) = 16 'SECURITY_MANDATORY_LABEL_AUTHORITY
+     status = RtlAllocateAndInitializeSid(auth, 1, SECURITY_MANDATORY_MEDIUM_RID, 0, 0, 0, 0, 0, 0, 0, integritySid)
+     
+     If g_TI Then
+         Dim trustedInstallerSid As LongPtr
+         Dim ntAuthority As SID_IDENTIFIER_AUTHORITY
+         ntAuthority.Value(5) = SECURITY_NT_AUTHORITY
+         status = RtlAllocateAndInitializeSid(ntAuthority, SECURITY_SERVICE_ID_RID_COUNT, SECURITY_SERVICE_ID_BASE_RID, _
+                                    SECURITY_TRUSTED_INSTALLER_RID1, SECURITY_TRUSTED_INSTALLER_RID2, _
+                                    SECURITY_TRUSTED_INSTALLER_RID3, SECURITY_TRUSTED_INSTALLER_RID4, _
+                                    SECURITY_TRUSTED_INSTALLER_RID5, 0, 0, trustedInstallerSid)
+     End If
+     Dim groups As TOKEN_GROUPS
+     groups.Groups(0).Sid = VarPtr(adminSid)
+     groups.Groups(0).Attributes = SE_GROUP_DEFAULTED Or SE_GROUP_ENABLED
+     If g_TI = False Then
+         groups.Groups(0).Attributes = groups.Groups(0).Attributes Or SE_GROUP_OWNER
+     End If
+     groups.Groups(1).Sid = VarPtr(allUsersSid)
+     groups.Groups(1).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED
+     groups.Groups(2).Sid = VarPtr(interactiveSid)
+     groups.Groups(2).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED
+     groups.Groups(3).Sid = VarPtr(systemSid)
+     groups.Groups(3).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED
+     groups.Groups(4).Sid = integritySid
+     groups.Groups(4).Attributes = SE_GROUP_INTEGRITY Or SE_GROUP_INTEGRITY_ENABLED
+     groups.Groups(5).Sid = VarPtr(authUsers)
+     groups.Groups(5).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED
+     If g_TI Then
+        groups.Groups(6).Sid = trustedInstallerSid
+        groups.Groups(6).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED Or SE_GROUP_OWNER
+        groups.GroupCount = 7
+     Else
+         groups.GroupCount = 6
+     End If
+     
+     Dim privs As TOKEN_PRIVILEGES
+     privs.PrivilegeCount = 2
+     privs.Privileges(0).Attributes = SE_PRIVILEGE_ENABLED_BY_DEFAULT
+     privs.Privileges(0).Luid.lowPart = SE_CHANGE_NOTIFY_PRIVILEGE
+     privs.Privileges(1).Luid.lowPart = SE_TCB_PRIVILEGE
+     
+     Dim primary As TOKEN_PRIMARY_GROUP
+     primary.PrimaryGroup = VarPtr(adminSid)
+     
+     Dim user As TOKEN_USER
+     user.User.Sid = VarPtr(systemSid)
+     
+     status = NtSetInformationThread(NtCurrentThread(), ThreadImpersonationToken, hDupToken, LenB(hDupToken))
+     If Not NT_SUCCESS(status) Then
+         PostLog "NtSetInformationThread error 0x" & Hex$(status) & ", " & GetNtErrorString(status)
+         If integritySid Then RtlFreeSid(integritySid)
+         Return status
+     Else
+         PostLog "Successfully impersonated lsass.exe..."
+     End If
+     
+     Dim authenticationId As LUID = RtlConvertUlongToLuid(999)
+     Dim source As TOKEN_SOURCE
+     source.SourceName(0) = Asc("C")
+     source.SourceName(0) = Asc("R")
+     source.SourceName(0) = Asc("T")
+     source.SourceName(0) = Asc("T")
+     source.SourceIdentifier = DCast(Of LUID)(777)
+     Dim expire As LARGE_INTEGER
+     Dim hToken As LongPtr
+     
+     status = NtCreateToken(hToken, TOKEN_ALL_ACCESS, vbNullPtr, TokenPrimary, authenticationId, _
+                             expire, user, groups, privs, vbNullPtr, primary, vbNullPtr, source)
+     
+     If NT_SUCCESS(status) Then
+        PostLog "Successfully created token!"
+        If (NT_SUCCESS(RtlAdjustPrivilege(SE_TCB_PRIVILEGE, CTRUE, CTRUE, enabled))) Then
+            'Use the following if you're a console app to attach to the current console:
+            ' Dim session As Long = WTSGetActiveConsoleSessionId()
+            ' NtQueryInformationProcess(NtCurrentProcess(), ProcessSessionInformation, session, LenB(session), ByVal 0)
+            ' NtSetInformationToken(hToken, TokenSessionId, session, LenB(session))
+            PostLog "Successfully acquired SE_TCB_PRIVILEGE and set token session id!"
+            If UIAccess Then
+                status = NtSetInformationToken(hToken, TokenUIAccess, CTRUE, LenB(Of BOOL))
+                PostLog "Set UIAccess outcome: 0x" & Hex$(status) & If(NT_SUCCESS(status), " (SUCCESS)", " (ERROR)")
+            End If
+            Dim si As STARTUPINFO
+            si.cbSize = LenB(si)
+            Dim pi As PROCESS_INFORMATION
+            Dim desktop As String = "winsta0\Default"
+            si.lpDesktop = StrPtr(desktop)
+            si.dwFlags = STARTF_USESHOWWINDOW
+            si.wShowWindow = SW_SHOW
+            status = RtlAdjustPrivilege(SE_ASSIGNPRIMARYTOKEN_PRIVILEGE, CTRUE, CTRUE, enabled)
+            Dim created As BOOL
+            If NT_SUCCESS(status) Then
+                PostLog "Enabled assign primary token privilege..."
+                Dim sArg As String
+                Dim sTx As String
+                Dim lpArg As LongPtr
+    
+                sTx = sCommandLine
+    
+                If ((Right$(sTx, 4) = ".exe") And PathFileExistsW(StrPtr(sTx)) And (InStr(sTx, Chr$(34)) = 0) And (InStr(InStr(sTx, ".exe"), sTx, " ") = 0)) Then
+                    created = CreateProcessAsUser(hToken, vbNullString, sCommandLine, vbNullPtr, vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
+                    If created = CFALSE Then
+                        PostLog "CreateProcessAsUser failed (0x" & Hex$(Err.LastDllError) & " " & GetSystemErrorString(Err.LastDllError) & "), trying CreateProcessWithTokenW..."
+                        created = CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, 0&, StrPtr(sCommandLine), CREATE_UNICODE_ENVIRONMENT Or PriorityClass, 0&, 0&, si, pi)
+                    End If
+                Else
+                    lpArg = PathGetArgsW(StrPtr(sTx))
+                    sArg = LPWSTRtoStr(lpArg, False)
+                    If Len(sArg) > 0& Then
+                        sTx = Left$(sTx, Len(sTx) - Len(sArg))
+                    End If
+                    sTx = Trim$(sTx)
+                    If Left$(sTx, 1) = Chr$(34) Then
+                        sTx = Mid$(sTx, 2)
+                        sTx = Left$(sTx, Len(sTx) - 1)
+                    End If
+                    If sArg = "" Then
+                        If InStr(sCommandLine, "%") Then
+                            sCommandLine = ExpandEnvVars(sCommandLine)
+                        End If
+                        created = CreateProcessAsUser(hToken, vbNullString, sCommandLine, vbNullPtr, vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
+                        If created = CFALSE Then
+                            PostLog "CreateProcessAsUser failed (0x" & Hex$(Err.LastDllError) & " " & GetSystemErrorString(Err.LastDllError) & "), trying CreateProcessWithTokenW..."
+                            created = CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, 0&, StrPtr(sCommandLine), CREATE_UNICODE_ENVIRONMENT Or PriorityClass, 0&, 0&, si, pi)
+                        End If
+                    Else
+                        PostLog "Command line args detected, parsed as:"
+                        PostLog "  App=" & sTx
+                        PostLog "  Arg=" & sArg
+                        If InStr(sTx, "%") Then
+                            sTx = ExpandEnvVars(sTx)
+                        End If
+                        created = CreateProcessAsUser(hToken, sTx, sCommandLine, vbNullPtr, vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
+                        If created = CFALSE Then
+                            PostLog "CreateProcessAsUser failed (0x" & Hex$(Err.LastDllError) & " " & GetSystemErrorString(Err.LastDllError) & "), trying CreateProcessWithTokenW..."
+                            created = CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, StrPtr(sTx), StrPtr(sCommandLine), CREATE_UNICODE_ENVIRONMENT, 0&, 0&, si, pi)
+                        End If
+                    End If
+                    If created Then
+                        PostLog "Successfully created process, pid=" & pi.dwProcessId
+                        NtClose(pi.hProcess)
+                        NtClose(pi.hThread)
+                    Else
+                        PostLog "Failed to create process, 0x" & Hex$(Err.LastDllError) & ", " & GetSystemErrorString(Err.LastDllError)
+                    End If
+                End If
+            End If
+        Else
+            PostLog "Couldn't enable SE_TCB_PRIVILEGE"
+        End If
+    Else
+        PostLog "Call to NtCreateToken failed: 0x" & Hex$(status) & ", " & GetNtErrorString((status))
+    End If
+
+    If integritySid Then RtlFreeSid(integritySid)
+ 
+     
+ End Function
+ Private Function ExpandEnvVars(sIn As String) As String
+ 'Expand environment variables
+ Dim sTmp As String
+ Dim chs As Long
+
+ sTmp = String$(MAX_PATH, 0)
+ chs = ExpandEnvironmentStringsW(StrPtr(sIn), StrPtr(sTmp), MAX_PATH)
+ If chs > 1& Then
+     ExpandEnvVars = Left$(sTmp, chs - 1&) 'It includes a null terminator
+ Else
+     ExpandEnvVars = sIn
+ End If
+
+ End Function
+
+Private Sub DisplaySid(sid As LongPtr)
+    Dim name As UNICODE_STRING
+    If (NT_SUCCESS(RtlConvertSidToUnicodeString(name, sid, CTRUE))) Then
+        PostLog "Create sid " & LPWSTRtoStr(name.Buffer, False)
+        RtlFreeUnicodeString(name)
+    End If
+End Sub
+
+Private Function DuplicateLSASSToken() As LongPtr
+    Dim hProcess As LongPtr = FindLsass()
+    If hProcess = 0 Then Return 0
+
+    Dim hToken As LongPtr
+    NtOpenProcessToken(hProcess, TOKEN_DUPLICATE, hToken)
+    If hToken = 0 Then
+        PostLog "Couldn't open process for token duplication."
+        Return 0
+    End If
+    
+    Dim hNewToken As LongPtr
+    Dim tokenAttr As OBJECT_ATTRIBUTES
+    InitializeObjectAttributes(tokenAttr, vbNullPtr, 0, vbNullPtr, vbNullPtr)
+    Dim qos As SECURITY_QUALITY_OF_SERVICE
+    qos.Length = LenB(qos)
+    qos.ImpersonationLevel = SecurityImpersonation
+    tokenAttr.SecurityQualityOfService = VarPtr(qos)
+    NtDuplicateToken(hToken, TOKEN_ALL_ACCESS, tokenAttr, False, TokenImpersonation, hNewToken)
+    NtClose(hToken)
+    Return hNewToken
+End Function
+
+Private Function FindLsass() As LongPtr
+    Dim path As String = String$(MAX_PATH, 0)
+    Dim cch As Long = GetSystemDirectory(path, MAX_PATH)
+    path = Left$(path, cch) & "\lsass.exe"
+     
+    Dim lsassPath As UNICODE_STRING
+    RtlInitUnicodeString(lsassPath, StrPtr(path))
+    
+    Dim buffer(255) As Byte
+    Dim hProcess As LongPtr, hOld As LongPtr
+    Dim status As NTSTATUS
+    Dim i As Long
+    While True
+        hOld = hProcess
+        status = NtGetNextProcess(hProcess, PROCESS_QUERY_LIMITED_INFORMATION, 0, 0, hProcess)
+        If hOld Then NtClose(hOld)
+        If Not NT_SUCCESS(status) Then Exit While
+        
+        If NT_SUCCESS(NtQueryInformationProcess(hProcess, ProcessImageFileNameWin32, buffer(0), UBound(buffer) + 1, ByVal 0)) Then
+            Dim name As UNICODE_STRING = CType(Of UNICODE_STRING)(VarPtr(buffer(0)))
+            i += 1
+            If (RtlEqualUnicodeString(lsassPath, name, CTRUE)) Then
+                PostLog "Located LSASS process..."
+                Return hProcess
+            End If
+        End If
+    Wend
+    PostLog "Failed to find lsass.exe, checked " & i & " processes"
+End Function
+
+
+End Module
