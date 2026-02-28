@@ -9,11 +9,8 @@ Module modCreateToken
 'https://github.com/zodiacon/winnativeapibooksamples
 
 
-Private hAppThread As LongPtr
-Private sDesktop As String
-Private bInit As Boolean
-Private hNtDll As LongPtr
-Private bTcb As Boolean
+Public g_TI As Boolean = True
+
 Public lOld64 As LongPtr
 
 Private bUI As Boolean
@@ -81,10 +78,21 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
      auth.Value(5) = 16 'SECURITY_MANDATORY_LABEL_AUTHORITY
      status = RtlAllocateAndInitializeSid(auth, 1, SECURITY_MANDATORY_MEDIUM_RID, 0, 0, 0, 0, 0, 0, 0, integritySid)
      
+     If g_TI Then
+         Dim trustedInstallerSid As LongPtr
+         Dim ntAuthority As SID_IDENTIFIER_AUTHORITY
+         ntAuthority.Value(5) = SECURITY_NT_AUTHORITY
+         status = RtlAllocateAndInitializeSid(ntAuthority, SECURITY_SERVICE_ID_RID_COUNT, SECURITY_SERVICE_ID_BASE_RID, _
+                                    SECURITY_TRUSTED_INSTALLER_RID1, SECURITY_TRUSTED_INSTALLER_RID2, _
+                                    SECURITY_TRUSTED_INSTALLER_RID3, SECURITY_TRUSTED_INSTALLER_RID4, _
+                                    SECURITY_TRUSTED_INSTALLER_RID5, 0, 0, trustedInstallerSid)
+     End If
      Dim groups As TOKEN_GROUPS
-     groups.GroupCount = 6
      groups.Groups(0).Sid = VarPtr(adminSid)
-     groups.Groups(0).Attributes = SE_GROUP_DEFAULTED Or SE_GROUP_ENABLED Or SE_GROUP_OWNER
+     groups.Groups(0).Attributes = SE_GROUP_DEFAULTED Or SE_GROUP_ENABLED
+     If g_TI = False Then
+         groups.Groups(0).Attributes = groups.Groups(0).Attributes Or SE_GROUP_OWNER
+     End If
      groups.Groups(1).Sid = VarPtr(allUsersSid)
      groups.Groups(1).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED
      groups.Groups(2).Sid = VarPtr(interactiveSid)
@@ -95,6 +103,13 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
      groups.Groups(4).Attributes = SE_GROUP_INTEGRITY Or SE_GROUP_INTEGRITY_ENABLED
      groups.Groups(5).Sid = VarPtr(authUsers)
      groups.Groups(5).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED
+     If g_TI Then
+        groups.Groups(6).Sid = trustedInstallerSid
+        groups.Groups(6).Attributes = SE_GROUP_ENABLED Or SE_GROUP_DEFAULTED Or SE_GROUP_OWNER
+        groups.GroupCount = 7
+     Else
+         groups.GroupCount = 6
+     End If
      
      Dim privs As TOKEN_PRIVILEGES
      privs.PrivilegeCount = 2
@@ -156,7 +171,7 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
                 Dim sArg As String
                 Dim sTx As String
                 Dim lpArg As LongPtr
-
+    
                 sTx = sCommandLine
     
                 If ((Right$(sTx, 4) = ".exe") And PathFileExistsW(StrPtr(sTx)) And (InStr(sTx, Chr$(34)) = 0) And (InStr(InStr(sTx, ".exe"), sTx, " ") = 0)) Then
