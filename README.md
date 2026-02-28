@@ -13,11 +13,11 @@ Module modCreateToken
 'Must run as admin
 
 'This is roughly based on the Chapter 11 CreateToken example from
-'the excellent Windows Native API Programming book by Pavel Yosifovich.
+'the excellent Windows Native API Programming book by Pavel Yosifovish.
 'https://github.com/zodiacon/winnativeapibooksamples
 
 
-Public g_TI As Boolean
+Public g_TI As Boolean = True
 
 Public lOld64 As LongPtr
 
@@ -150,8 +150,8 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
      Dim expire As LARGE_INTEGER
      Dim hToken As LongPtr
      
-     status = NtCreateToken(hToken, TOKEN_ALL_ACCESS, vbNullPtr, TokenPrimary, authenticationId, _
-                             expire, user, groups, privs, vbNullPtr, primary, vbNullPtr, source)
+     status = NtCreateToken(hToken, TOKEN_ALL_ACCESS, ByVal vbNullPtr, TokenPrimary, authenticationId, _
+                             expire, user, groups, privs, ByVal vbNullPtr, primary, ByVal vbNullPtr, source)
      
      If NT_SUCCESS(status) Then
         PostLog "Successfully created token!"
@@ -183,7 +183,7 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
                 sTx = sCommandLine
     
                 If ((Right$(sTx, 4) = ".exe") And PathFileExistsW(StrPtr(sTx)) And (InStr(sTx, Chr$(34)) = 0) And (InStr(InStr(sTx, ".exe"), sTx, " ") = 0)) Then
-                    created = CreateProcessAsUser(hToken, vbNullString, sCommandLine, vbNullPtr, vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
+                    created = CreateProcessAsUser(hToken, vbNullString, sCommandLine, ByVal vbNullPtr, ByVal vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
                     If created = CFALSE Then
                         PostLog "CreateProcessAsUser failed (0x" & Hex$(Err.LastDllError) & " " & GetSystemErrorString(Err.LastDllError) & "), trying CreateProcessWithTokenW..."
                         created = CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, 0&, StrPtr(sCommandLine), CREATE_UNICODE_ENVIRONMENT Or PriorityClass, 0&, 0&, si, pi)
@@ -203,7 +203,7 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
                         If InStr(sCommandLine, "%") Then
                             sCommandLine = ExpandEnvVars(sCommandLine)
                         End If
-                        created = CreateProcessAsUser(hToken, vbNullString, sCommandLine, vbNullPtr, vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
+                        created = CreateProcessAsUser(hToken, vbNullString, sCommandLine, ByVal vbNullPtr, ByVal vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
                         If created = CFALSE Then
                             PostLog "CreateProcessAsUser failed (0x" & Hex$(Err.LastDllError) & " " & GetSystemErrorString(Err.LastDllError) & "), trying CreateProcessWithTokenW..."
                             created = CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, 0&, StrPtr(sCommandLine), CREATE_UNICODE_ENVIRONMENT Or PriorityClass, 0&, 0&, si, pi)
@@ -215,7 +215,7 @@ Public Function RunProcessWithCustomToken(ByVal sCommandLine As String, Optional
                         If InStr(sTx, "%") Then
                             sTx = ExpandEnvVars(sTx)
                         End If
-                        created = CreateProcessAsUser(hToken, sTx, sCommandLine, vbNullPtr, vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
+                        created = CreateProcessAsUser(hToken, sTx, sCommandLine, ByVal vbNullPtr, ByVal vbNullPtr, CFALSE, CREATE_UNICODE_ENVIRONMENT Or PriorityClass, ByVal 0, vbNullString, si, pi)
                         If created = CFALSE Then
                             PostLog "CreateProcessAsUser failed (0x" & Hex$(Err.LastDllError) & " " & GetSystemErrorString(Err.LastDllError) & "), trying CreateProcessWithTokenW..."
                             created = CreateProcessWithTokenW(hToken, LOGON_WITH_PROFILE, StrPtr(sTx), StrPtr(sCommandLine), CREATE_UNICODE_ENVIRONMENT, 0&, 0&, si, pi)
