@@ -3,7 +3,7 @@ Create an arbitrary token to run as any user / groups
 
 This project is not finished. I'll be building an app based on this where you can select the users/groups to run as, in the mean time, attached is an example where they're hard-coded.
 
-(Requires Windows Development Library for twinBASIC)
+(Requires Windows Development Library for twinBASIC v9.2.658+)
 
 ```vba
 Module modCreateToken
